@@ -283,7 +283,8 @@ async function buscarProducto(){
     }
     productoActual = data[0];
     costoVisible = false;
-    msg.innerHTML = `<div class="msg ok">Encontrado: ${productoActual.codigo_brk} — ${productoActual.familia||''}</div>`;
+    const notasHtml = productoActual.notas ? `<div class="msg ok" style="margin-top:6px;">${productoActual.notas}</div>` : '';
+    msg.innerHTML = `<div class="msg ok">Encontrado: ${productoActual.codigo_brk} — ${productoActual.familia||''}</div>${notasHtml}`;
     document.getElementById('cardCalculo').style.display='block';
     document.getElementById('cardComparativo').style.display='block';
     renderCosto();
@@ -533,6 +534,7 @@ async function procesarArchivos(){
       mapa[cod] = mapa[cod] || {codigo_brk: cod};
       mapa[cod].costo = r['Costo prom. uni.'] ?? null;
       mapa[cod].familia = r['FAMILIA'] ?? mapa[cod].familia ?? null;
+      mapa[cod].notas = r['Notas ítem'] ?? null;
     });
     const asignarLista = (rows, campo)=>{
       rows.forEach(r=>{
