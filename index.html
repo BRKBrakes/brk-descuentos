@@ -555,6 +555,7 @@ async function procesarArchivos(){
       progressLabel.textContent = `Subidos ${procesados} de ${registros.length}...`;
     }
     progressBar.value = 100; progressLabel.textContent = 'Completado.';
+    await rpc('registrar_carga', {p_clave: claveAdmin, p_total: registros.length});
     msg.innerHTML = `<div class="msg ok">${registros.length} referencias actualizadas correctamente.</div>`;
     cargarHistorial();
   }catch(e){
