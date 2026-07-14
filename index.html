@@ -231,12 +231,15 @@ function showTab(tab){
   document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
 }
 
+let claveAdmin = null;
+
 async function abrirAdmin(){
   const clave = prompt('Ingresa la clave de administrador:');
   if(!clave) return;
   try{
     const ok = await rpc('validar_clave', {p_clave: clave});
     if(!ok){ alert('Clave incorrecta.'); return; }
+    claveAdmin = clave;
     showTab('admin');
     cargarHistorial();
   }catch(e){
@@ -508,6 +511,7 @@ function leerArchivo(file){
 function limpiarCodigo(ref){ if(!ref) return null; return String(ref).replace(/^PC/i,'').trim().toUpperCase(); }
 
 async function procesarArchivos(){
+  if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
   const msg = document.getElementById('adminMsg');
   const progressWrap = document.getElementById('adminProgress');
   const progressBar = document.getElementById('progressBar');
@@ -545,7 +549,7 @@ async function procesarArchivos(){
     const lote = 200; let procesados = 0;
     for(let i=0; i<registros.length; i+=lote){
       const chunk = registros.slice(i, i+lote);
-      await rpc('upsert_productos', {p_data: chunk});
+      await rpc('upsert_productos', {p_clave: claveAdmin, p_data: chunk});
       procesados += chunk.length;
       progressBar.value = 55 + Math.round((procesados/registros.length)*40);
       progressLabel.textContent = `Subidos ${procesados} de ${registros.length}...`;
