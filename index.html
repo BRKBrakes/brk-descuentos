@@ -221,7 +221,8 @@ async function rpc(fn, body){
     body: JSON.stringify(body)
   });
   if(!res.ok){ const t = await res.text(); throw new Error(t || `Error ${res.status}`); }
-  return res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 function showTab(tab){
