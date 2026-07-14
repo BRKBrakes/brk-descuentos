@@ -209,7 +209,7 @@
 const SUPABASE_URL = "https://ytgziytuldsqhymqjyig.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XmVD0oEzy2cjNJJepJWZcA_BTeERBPY";
 
-async function rpc(fn, body){
+async function rpc(fn, body, extraHeaders){
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: "POST",
     headers: {
@@ -217,7 +217,8 @@ async function rpc(fn, body){
       "Authorization": `Bearer ${SUPABASE_KEY}`,
       "Content-Type": "application/json",
       "Content-Profile": "descuentos",
-      "Accept-Profile": "descuentos"
+      "Accept-Profile": "descuentos",
+      ...(extraHeaders||{})
     },
     body: JSON.stringify(body)
   });
@@ -478,7 +479,7 @@ async function exportar(){
   const clave = prompt('Ingresa la clave de exportación:');
   if(!clave) return;
   try{
-    const data = await rpc('exportar_productos', {p_clave: clave});
+    const data = await rpc('exportar_productos', {p_clave: clave}, {"Range-Unit":"items", "Range":"0-99999", "Prefer":"count=exact"});
     await generarExcel(data);
   }catch(e){
     alert('Clave incorrecta o error al exportar.');
@@ -490,6 +491,7 @@ async function generarExcel(data){
   const sheet = workbook.addWorksheet('Precios y Margenes');
   sheet.columns = [
     {header:'Ref BRK', key:'ref', width:14},
+    {header:'Marca', key:'marca', width:16},
     {header:'Familia', key:'familia', width:20},
     {header:'Costo', key:'costo', width:14},
     {header:'LV2', key:'lv2', width:14},
@@ -505,6 +507,7 @@ async function generarExcel(data){
     const mlv2 = margen(r.lv2), mlv1 = margen(r.lv1), mmt1 = margen(r.mt1);
     const row = sheet.addRow({
       ref: r.codigo_brk,
+      marca: r.marca,
       familia: r.familia,
       costo: r.costo,
       lv2: r.lv2, mlv2: mlv2!=null? Number((mlv2/100).toFixed(3)) : null,
@@ -589,6 +592,7 @@ async function procesarArchivos(){
       mapa[cod].costo = r['Costo prom. uni.'] ?? null;
       mapa[cod].familia = r['FAMILIA'] ?? mapa[cod].familia ?? null;
       mapa[cod].notas = r['Notas ítem'] ?? null;
+      mapa[cod].marca = r['MARCA'] ?? null;
     });
     const asignarLista = (rows, campo)=>{
       rows.forEach(r=>{
