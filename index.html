@@ -602,6 +602,8 @@ async function procesarArchivos(){
     const registros = Object.values(mapa).filter(r=>r.costo!=null || r.lv1!=null || r.lv2!=null || r.mt1!=null);
     if(registros.length===0) throw new Error('No se encontraron registros válidos.');
     progressLabel.textContent = `Subiendo ${registros.length} registros...`; progressBar.value = 55;
+    progressLabel.textContent = 'Creando respaldo de seguridad...';
+    await rpc('crear_backup', {p_clave: claveAdmin});
     const lote = 200; let procesados = 0;
     for(let i=0; i<registros.length; i+=lote){
       const chunk = registros.slice(i, i+lote);
