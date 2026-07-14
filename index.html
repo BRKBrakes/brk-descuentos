@@ -179,12 +179,13 @@
     <h2>Cargar / actualizar base de precios y costos</h2>
     <p class="small-note">Sube los 4 archivos (Costos.xls, LV1.xls, LV2.xls, MT1.xls). Se combinan por Código BRK y actualizan la base.</p>
     <div class="row">
-      <div><label>Costos.xls</label><input type="file" id="fileCostos" accept=".xls,.xlsx"></div>
-      <div><label>LV1.xls</label><input type="file" id="fileLV1" accept=".xls,.xlsx"></div>
-      <div><label>LV2.xls</label><input type="file" id="fileLV2" accept=".xls,.xlsx"></div>
-      <div><label>MT1.xls</label><input type="file" id="fileMT1" accept=".xls,.xlsx"></div>
+      <div><label>Costos.xls</label><input type="file" id="fileCostos" accept=".xls,.xlsx"><div class="small-note" id="fechaCostos"></div></div>
+      <div><label>LV1.xls</label><input type="file" id="fileLV1" accept=".xls,.xlsx"><div class="small-note" id="fechaLV1"></div></div>
+      <div><label>LV2.xls</label><input type="file" id="fileLV2" accept=".xls,.xlsx"><div class="small-note" id="fechaLV2"></div></div>
+      <div><label>MT1.xls</label><input type="file" id="fileMT1" accept=".xls,.xlsx"><div class="small-note" id="fechaMT1"></div></div>
     </div>
     <button class="primary" onclick="procesarArchivos()">Procesar y subir</button>
+    <button class="secondary" onclick="revertirCarga()" style="margin-left:10px;">Revertir última carga</button>
     <div id="adminProgress" class="hidden" style="margin-top:14px;">
       <progress id="progressBar" value="0" max="100"></progress>
       <div class="small-note" id="progressLabel"></div>
@@ -243,10 +244,34 @@ async function abrirAdmin(){
     claveAdmin = clave;
     showTab('admin');
     cargarHistorial();
+    cargarFechasPorTipo();
   }catch(e){
     alert('Clave incorrecta o error de conexión.');
   }
 }
+
+async function cargarFechasPorTipo(){
+  try{
+    const data = await rpc('listar_ultima_carga', {});
+    const map = {};
+    (data||[]).forEach(d => map[d.tipo] = d.fecha);
+    const ids = {costos:'fechaCostos', lv1:'fechaLV1', lv2:'fechaLV2', mt1:'fechaMT1'};
+    Object.entries(ids).forEach(([tipo, id])=>{
+      const el = document.getElementById(id);
+      el.textContent = map[tipo] ? 'Última subida: ' + new Date(map[tipo]).toLocaleString('es-CO') : 'Sin cargar aún';
+    });
+  }catch(e){}
+}
+
+async function cargarFooterFecha(){
+  try{
+    const data = await rpc('listar_ultima_carga', {});
+    if(!data || data.length===0) return;
+    const masReciente = data.reduce((a,b)=> new Date(a.fecha) > new Date(b.fecha) ? a : b);
+    document.getElementById('footerFecha').textContent = new Date(masReciente.fecha).toLocaleString('es-CO');
+  }catch(e){}
+}
+cargarFooterFecha();
 
 async function cargarHistorial(){
   const tbody = document.getElementById('tablaHistorial');
@@ -360,8 +385,23 @@ function recalcular(origen){
   if(!productoActual) return;
   const costo = parseFloat(productoActual.costo) || 0;
   const listaKey = document.getElementById('listaSel').value;
-  const precioLista = parseFloat(productoActual[listaKey]) || 0;
+  const precioListaRaw = productoActual[listaKey];
+  const precioLista = parseFloat(precioListaRaw) || 0;
   const cantidad = parseFloat(document.getElementById('cantidad').value) || 1;
+
+  if(precioListaRaw==null){
+    document.getElementById('kpiUtilPct').textContent = '-';
+    document.getElementById('kpiUtilUnit').textContent = '-';
+    document.getElementById('kpiUtilTotal').textContent = '-';
+    document.getElementById('kpiPrecioMin').textContent = '-';
+    document.getElementById('descMaxNote').textContent = '';
+    document.getElementById('alertaAuth').className = 'msg hidden';
+    const semaforo = document.getElementById('semaforo');
+    semaforo.className = 'semaforo neutro';
+    semaforo.textContent = `Este código no tiene precio en ${listaKey.toUpperCase()} — prueba otra lista`;
+    actualizarComparativo(costo, 0, cantidad);
+    return;
+  }
 
   let precioVenta = parseMoney(document.getElementById('precioVenta').value);
   let descPct = parsePercent(document.getElementById('descPct').value);
@@ -512,6 +552,19 @@ function leerArchivo(file){
 }
 function limpiarCodigo(ref){ if(!ref) return null; return String(ref).replace(/^PC/i,'').trim().toUpperCase(); }
 
+async function revertirCarga(){
+  if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
+  if(!confirm('¿Revertir a la base ANTES de la última carga? Esto no se puede deshacer otra vez.')) return;
+  const msg = document.getElementById('adminMsg');
+  try{
+    const count = await rpc('revertir_ultima_carga', {p_clave: claveAdmin});
+    msg.innerHTML = `<div class="msg ok">Reversión completa: ${count} registros restaurados.</div>`;
+    cargarHistorial();
+  }catch(e){
+    msg.innerHTML = `<div class="msg error">No se pudo revertir (puede que no haya respaldo disponible).</div>`;
+  }
+}
+
 async function procesarArchivos(){
   if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
   const msg = document.getElementById('adminMsg');
@@ -559,6 +612,16 @@ async function procesarArchivos(){
     }
     progressBar.value = 100; progressLabel.textContent = 'Completado.';
     await rpc('registrar_carga', {p_clave: claveAdmin, p_total: registros.length});
+    const tiposSubidos = [];
+    if(fCostos) tiposSubidos.push('costos');
+    if(fLV1) tiposSubidos.push('lv1');
+    if(fLV2) tiposSubidos.push('lv2');
+    if(fMT1) tiposSubidos.push('mt1');
+    if(tiposSubidos.length>0){
+      await rpc('actualizar_carga_tipo', {p_clave: claveAdmin, p_tipos: tiposSubidos});
+      cargarFechasPorTipo();
+      cargarFooterFecha();
+    }
     msg.innerHTML = `<div class="msg ok">${registros.length} referencias actualizadas correctamente.</div>`;
     cargarHistorial();
   }catch(e){
@@ -571,5 +634,9 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
+<footer style="text-align:center; padding:20px; color:var(--silver); font-size:11px; border-top:1px solid var(--dust); margin-top:20px;">
+  CREADO &amp; DISEÑADO POR CARLOS GOMEZ · LÍDER BRK COLOMBIA
+  &nbsp;·&nbsp; Última actualización: <span id="footerFecha">-</span>
+</footer>
 </body>
 </html>
