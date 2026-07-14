@@ -585,8 +585,16 @@ async function procesarArchivos(){
     progressLabel.textContent = 'Leyendo archivos...'; progressBar.value = 10;
     const [costos, lv1, lv2, mt1] = await Promise.all([leerArchivo(fCostos), leerArchivo(fLV1), leerArchivo(fLV2), leerArchivo(fMT1)]);
     progressLabel.textContent = 'Combinando por código BRK...'; progressBar.value = 35;
+    const FAMILIAS_PERMITIDAS = [
+      '3301 - PASTILLAS', '3303 - DISCOS', '3304 - CILINDROS', '3306 - CAMPANAS',
+      '3313 - ZAPATAS', '3308 - LIQUIDO DE FRENOS', '3321 - GRASAS Y LIMPIADORES',
+      '3302 - BANDAS', '3330 - SENSORES'
+    ];
+    const familiaOk = (fam) => fam!=null && FAMILIAS_PERMITIDAS.includes(String(fam).trim().toUpperCase());
+
     const mapa = {};
     costos.forEach(r=>{
+      if(!familiaOk(r['FAMILIA'])) return;
       const cod = limpiarCodigo(r['Referencia']); if(!cod) return;
       mapa[cod] = mapa[cod] || {codigo_brk: cod};
       mapa[cod].costo = r['Costo prom. uni.'] ?? null;
@@ -596,6 +604,7 @@ async function procesarArchivos(){
     });
     const asignarLista = (rows, campo)=>{
       rows.forEach(r=>{
+        if(!familiaOk(r['FAMILIA'])) return;
         const cod = limpiarCodigo(r['Referencia']); if(!cod) return;
         mapa[cod] = mapa[cod] || {codigo_brk: cod};
         mapa[cod][campo] = r['Precio'] ?? null;
