@@ -17,7 +17,7 @@
   *{box-sizing:border-box;}
   body{ margin:0; background:var(--ash); color:var(--white); font-family:'JetBrains Mono', monospace; font-weight:300; min-height:100vh; }
   h1,h2,h3,.brk-title{ font-family:'Barlow Condensed', sans-serif; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; }
-  header{ padding:14px 24px; background:linear-gradient(180deg, var(--forest) 0%, var(--ash) 100%); border-bottom:2px solid var(--neon); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  header{ position:sticky; top:0; z-index:100; padding:14px 24px; background:linear-gradient(180deg, var(--forest) 0%, var(--ash) 100%); border-bottom:2px solid var(--neon); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
   header .brk-title{ color:var(--neon); font-size:24px; margin:0; text-align:center; }
   header .sub{ color:var(--silver); font-size:12px; margin-top:2px; }
   .header-side{ display:flex; align-items:center; gap:14px; flex:1; }
@@ -102,8 +102,9 @@
         <label>Código BRK</label>
         <input id="codigo" placeholder="Ej: 32399" onkeydown="if(event.key==='Enter')buscarProducto()">
       </div>
-      <div style="display:flex; align-items:flex-end;">
+      <div style="display:flex; align-items:flex-end; gap:8px;">
         <button class="primary" onclick="buscarProducto()" style="width:100%;">Buscar</button>
+        <button class="secondary" onclick="limpiarBusqueda()" style="white-space:nowrap;">Limpiar</button>
       </div>
     </div>
     <div id="msgBusqueda"></div>
@@ -294,6 +295,16 @@ async function cargarHistorial(){
 
 let productoActual = null;
 let costoVisible = false;
+
+function limpiarBusqueda(){
+  document.getElementById('codigo').value = '';
+  document.getElementById('msgBusqueda').innerHTML = '';
+  document.getElementById('cardCalculo').style.display = 'none';
+  document.getElementById('cardComparativo').style.display = 'none';
+  productoActual = null;
+  costoVisible = false;
+  document.getElementById('codigo').focus();
+}
 
 async function buscarProducto(){
   const codigo = document.getElementById('codigo').value.trim();
