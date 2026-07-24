@@ -193,16 +193,32 @@
 
 <section id="viewAdmin" class="hidden">
   <div class="card">
+    <h2>Carpeta de archivos SIESA</h2>
+    <p class="small-note">Configura una sola vez la carpeta donde guardas Costos.xls, LV1.xls, LV2.xls y MT1.xls. Cada botón lee ese archivo exacto directo de la carpeta — no hace falta seleccionar archivo cada vez.</p>
+    <button class="secondary" onclick="configurarCarpeta()">📁 Configurar carpeta</button>
+  </div>
+  <div class="card">
     <h2>Cargar / actualizar base de precios y costos</h2>
-    <p class="small-note">Sube los 4 archivos (Costos.xls, LV1.xls, LV2.xls, MT1.xls). Se combinan por Código BRK y actualizan la base.</p>
+    <p class="small-note">Cada botón reemplaza SOLO su propia columna: lo que no venga en ese archivo queda vacío para esa columna.</p>
     <div class="row">
-      <div><label>Costos.xls</label><input type="file" id="fileCostos" accept=".xls,.xlsx"><div class="small-note" id="fechaCostos"></div></div>
-      <div><label>LV1.xls</label><input type="file" id="fileLV1" accept=".xls,.xlsx"><div class="small-note" id="fechaLV1"></div></div>
-      <div><label>LV2.xls</label><input type="file" id="fileLV2" accept=".xls,.xlsx"><div class="small-note" id="fechaLV2"></div></div>
-      <div><label>MT1.xls</label><input type="file" id="fileMT1" accept=".xls,.xlsx"><div class="small-note" id="fechaMT1"></div></div>
+      <div>
+        <button class="primary" style="width:100%;" onclick="cargarCostosDesdeCarpeta()">Cargar Costos.xls</button>
+        <div class="small-note" id="fechaCostos"></div>
+      </div>
+      <div>
+        <button class="primary" style="width:100%;" onclick="cargarLV1DesdeCarpeta()">Cargar LV1.xls</button>
+        <div class="small-note" id="fechaLV1"></div>
+      </div>
+      <div>
+        <button class="primary" style="width:100%;" onclick="cargarLV2DesdeCarpeta()">Cargar LV2.xls</button>
+        <div class="small-note" id="fechaLV2"></div>
+      </div>
+      <div>
+        <button class="primary" style="width:100%;" onclick="cargarMT1DesdeCarpeta()">Cargar MT1.xls</button>
+        <div class="small-note" id="fechaMT1"></div>
+      </div>
     </div>
-    <button class="primary" onclick="procesarArchivos()">Procesar y subir</button>
-    <button class="secondary" onclick="revertirCarga()" style="margin-left:10px;">Revertir última carga</button>
+    <button class="secondary" onclick="revertirCarga()">Revertir última carga</button>
     <div id="adminProgress" class="hidden" style="margin-top:14px;">
       <progress id="progressBar" value="0" max="100"></progress>
       <div class="small-note" id="progressLabel"></div>
@@ -622,6 +638,99 @@ function leerArchivo(file){
   });
 }
 function limpiarCodigo(ref){ if(!ref) return null; return String(ref).replace(/^PC/i,'').trim().toUpperCase(); }
+
+// ===== Carpeta fija (File System Access API) =====
+function idbGet(key){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open('brk_fs_store', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('handles','readonly');
+      const g = tx.objectStore('handles').get(key);
+      g.onsuccess = () => resolve(g.result || null);
+      g.onerror = () => reject(g.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+function idbSet(key, value){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open('brk_fs_store', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('handles','readwrite');
+      tx.objectStore('handles').put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+async function configurarCarpeta(){
+  try{
+    const handle = await window.showDirectoryPicker();
+    await idbSet('carpeta_siesa', handle);
+    alert('Carpeta configurada correctamente. Ya puedes usar los botones de carga.');
+  }catch(e){
+    if(e.name !== 'AbortError') alert('No se pudo configurar la carpeta: ' + e.message);
+  }
+}
+async function leerArchivoHandle(fileHandle){
+  const file = await fileHandle.getFile();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:'array'});
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, {defval:null});
+}
+
+async function cargarDesdeCarpeta(tipo, nombreArchivo, rpcFn, buildItem){
+  const msg = document.getElementById('adminMsg');
+  msg.innerHTML = '';
+  if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
+  try{
+    const dirHandle = await idbGet('carpeta_siesa');
+    if(!dirHandle){ alert('Primero configura la carpeta (botón arriba).'); return; }
+    const perm = await dirHandle.requestPermission({mode:'read'});
+    if(perm !== 'granted'){ alert('Permiso denegado para leer la carpeta.'); return; }
+    const fileHandle = await dirHandle.getFileHandle(nombreArchivo);
+    const rows = await leerArchivoHandle(fileHandle);
+    const data = rows.filter(r=>familiaOk(r['FAMILIA'])).map(buildItem).filter(Boolean);
+    if(data.length===0){ msg.innerHTML = '<div class="msg error">No se encontraron filas válidas (revisa el filtro de familias).</div>'; return; }
+    await rpc('crear_backup', {p_clave: claveAdmin});
+    const total = await rpc(rpcFn, {p_clave: claveAdmin, p_data: data});
+    await rpc('registrar_carga', {p_clave: claveAdmin, p_total: total});
+    await rpc('actualizar_carga_tipo', {p_clave: claveAdmin, p_tipos: [tipo]});
+    msg.innerHTML = `<div class="msg ok">${nombreArchivo}: ${total} registros reemplazados.</div>`;
+    cargarHistorial(); cargarFechasPorTipo(); cargarFooterFecha();
+  }catch(e){
+    msg.innerHTML = `<div class="msg error">Error: ${e.message}</div>`;
+  }
+}
+
+function cargarCostosDesdeCarpeta(){
+  cargarDesdeCarpeta('costos', 'Costos.xls', 'reemplazar_costos', r=>{
+    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
+    return { codigo_brk: cod, costo: r['Costo prom. uni.'] ?? null, notas: r['Notas ítem'] ?? null, marca: r['MARCA'] ?? null, familia: r['FAMILIA'] ?? null };
+  });
+}
+function cargarLV1DesdeCarpeta(){
+  cargarDesdeCarpeta('lv1', 'LV1.xls', 'reemplazar_lv1', r=>{
+    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
+    return { codigo_brk: cod, valor: r['Precio'] ?? null };
+  });
+}
+function cargarLV2DesdeCarpeta(){
+  cargarDesdeCarpeta('lv2', 'LV2.xls', 'reemplazar_lv2', r=>{
+    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
+    return { codigo_brk: cod, valor: r['Precio'] ?? null };
+  });
+}
+function cargarMT1DesdeCarpeta(){
+  cargarDesdeCarpeta('mt1', 'MT1.xls', 'reemplazar_mt1', r=>{
+    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
+    return { codigo_brk: cod, valor: r['Precio'] ?? null };
+  });
+}
 
 async function revertirCarga(){
   if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
