@@ -369,6 +369,13 @@ async function cargarHistorial(){
 let productoActual = null;
 let costoVisible = false;
 
+const FAMILIAS_PERMITIDAS = [
+  '3301 - PASTILLAS', '3303 - DISCOS', '3304 - CILINDROS', '3306 - CAMPANAS',
+  '3313 - ZAPATAS', '3308 - LIQUIDO DE FRENOS', '3321 - GRASAS Y LIMPIADORES',
+  '3302 - BANDAS', '3330 - SENSORES'
+];
+function familiaOk(fam){ return fam!=null && FAMILIAS_PERMITIDAS.includes(String(fam).trim().toUpperCase()); }
+
 function limpiarBusqueda(){
   document.getElementById('codigo').value = '';
   document.getElementById('msgBusqueda').innerHTML = '';
@@ -762,13 +769,6 @@ async function procesarArchivos(){
     progressLabel.textContent = 'Leyendo archivos...'; progressBar.value = 10;
     const [costos, lv1, lv2, mt1] = await Promise.all([leerArchivo(fCostos), leerArchivo(fLV1), leerArchivo(fLV2), leerArchivo(fMT1)]);
     progressLabel.textContent = 'Combinando por código BRK...'; progressBar.value = 35;
-    const FAMILIAS_PERMITIDAS = [
-      '3301 - PASTILLAS', '3303 - DISCOS', '3304 - CILINDROS', '3306 - CAMPANAS',
-      '3313 - ZAPATAS', '3308 - LIQUIDO DE FRENOS', '3321 - GRASAS Y LIMPIADORES',
-      '3302 - BANDAS', '3330 - SENSORES'
-    ];
-    const familiaOk = (fam) => fam!=null && FAMILIAS_PERMITIDAS.includes(String(fam).trim().toUpperCase());
-
     const mapa = {};
     costos.forEach(r=>{
       if(!familiaOk(r['FAMILIA'])) return;
