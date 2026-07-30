@@ -74,6 +74,17 @@
 </head>
 <body>
 
+<div id="resetOverlay" class="hidden" style="position:fixed; inset:0; background:var(--ash); display:flex; align-items:center; justify-content:center; z-index:1001;">
+  <div class="card" style="width:340px;">
+    <h2 style="text-align:center;">Nueva contraseña</h2>
+    <label>Nueva contraseña</label>
+    <input id="resetPass" type="password">
+    <div style="height:14px;"></div>
+    <button class="primary" onclick="guardarNuevaPassword()" style="width:100%;">Guardar</button>
+    <div id="resetMsg"></div>
+  </div>
+</div>
+
 <div id="loginOverlay" style="position:fixed; inset:0; background:var(--ash); display:flex; align-items:center; justify-content:center; z-index:1000;">
   <div class="card" style="width:340px;">
     <h2 style="text-align:center;">BRK · Calculadora</h2>
@@ -280,6 +291,35 @@ function mostrarApp(){
 }
 
 if(getAccessToken()){ mostrarApp(); }
+
+(function(){
+  const hash = new URLSearchParams(location.hash.replace('#',''));
+  if(hash.get('type') === 'recovery' && hash.get('access_token')){
+    sessionStorage.setItem('brk_recovery_token', hash.get('access_token'));
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('resetOverlay').classList.remove('hidden');
+  }
+})();
+
+async function guardarNuevaPassword(){
+  const pass = document.getElementById('resetPass').value;
+  const msg = document.getElementById('resetMsg');
+  const token = sessionStorage.getItem('brk_recovery_token');
+  if(!pass || pass.length < 6){ msg.innerHTML = '<div class="msg error">Mínimo 6 caracteres.</div>'; return; }
+  try{
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: "PUT",
+      headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pass })
+    });
+    if(!res.ok){ msg.innerHTML = '<div class="msg error">El link expiró, solicita uno nuevo.</div>'; return; }
+    sessionStorage.removeItem('brk_recovery_token');
+    msg.innerHTML = '<div class="msg ok">Contraseña actualizada. Redirigiendo al login...</div>';
+    setTimeout(()=>{ location.href = location.origin + location.pathname; }, 1500);
+  }catch(e){
+    msg.innerHTML = '<div class="msg error">Error de conexión.</div>';
+  }
+}
 
 async function rpc(fn, body, extraHeaders){
   const token = getAccessToken() || SUPABASE_KEY;
