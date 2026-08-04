@@ -254,6 +254,11 @@
 const SUPABASE_URL = "https://ytgziytuldsqhymqjyig.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XmVD0oEzy2cjNJJepJWZcA_BTeERBPY";
 
+function esc(str){
+  if(str==null) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function getAccessToken(){ return sessionStorage.getItem('brk_access_token'); }
 
 async function iniciarSesion(){
@@ -441,8 +446,8 @@ async function buscarProducto(){
     }
     productoActual = data[0];
     costoVisible = false;
-    const notasHtml = productoActual.notas ? `<div class="msg ok" style="margin-top:6px;">${productoActual.notas}</div>` : '';
-    msg.innerHTML = `<div class="msg ok">Encontrado: ${productoActual.codigo_brk} — ${productoActual.familia||''}</div>${notasHtml}`;
+    const notasHtml = productoActual.notas ? `<div class="msg ok" style="margin-top:6px;">${esc(productoActual.notas)}</div>` : '';
+    msg.innerHTML = `<div class="msg ok">Encontrado: ${esc(productoActual.codigo_brk)} — ${esc(productoActual.familia)||''}</div>${notasHtml}`;
     document.getElementById('cardCalculo').style.display='block';
     document.getElementById('cardComparativo').style.display='block';
     renderCosto();
