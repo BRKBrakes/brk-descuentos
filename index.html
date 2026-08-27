@@ -238,19 +238,15 @@
     <div class="row">
       <div>
         <button class="primary" style="width:100%;" onclick="cargarCostosDesdeCarpeta()">Cargar Costos.xls</button>
-        <div class="small-note" id="fechaCostos"></div>
       </div>
       <div>
         <button class="primary" style="width:100%;" onclick="cargarLV1DesdeCarpeta()">Cargar LV1.xls</button>
-        <div class="small-note" id="fechaLV1"></div>
       </div>
       <div>
         <button class="primary" style="width:100%;" onclick="cargarLV2DesdeCarpeta()">Cargar LV2.xls</button>
-        <div class="small-note" id="fechaLV2"></div>
       </div>
       <div>
         <button class="primary" style="width:100%;" onclick="cargarMT1DesdeCarpeta()">Cargar MT1.xls</button>
-        <div class="small-note" id="fechaMT1"></div>
       </div>
     </div>
     <button class="secondary" onclick="revertirCarga()">Revertir última carga</button>
@@ -261,10 +257,10 @@
     <div id="adminMsg"></div>
   </div>
   <div class="card">
-    <h2>Historial de cargas</h2>
+    <h2>Estado actual</h2>
     <table>
-      <thead><tr><th>Fecha</th><th>Registros actualizados</th></tr></thead>
-      <tbody id="tablaHistorial"><tr><td colspan="2" class="small-note">Sin datos aún.</td></tr></tbody>
+      <thead><tr><th>Fuente</th><th>Última actualización</th><th>Registros</th></tr></thead>
+      <tbody id="tablaEstadoActual"><tr><td colspan="3" class="small-note">Sin datos aún.</td></tr></tbody>
     </table>
   </div>
 </section>
@@ -387,24 +383,34 @@ async function abrirAdmin(){
     if(!ok){ alert('Clave incorrecta.'); return; }
     claveAdmin = clave;
     showTab('admin');
-    cargarHistorial();
-    cargarFechasPorTipo();
+    cargarEstadoActual();
   }catch(e){
     alert('Clave incorrecta o error de conexión.');
   }
 }
 
-async function cargarFechasPorTipo(){
+const FUENTE_LABEL = { costos:'Costos', lv1:'LV1', lv2:'LV2', mt1:'MT1' };
+
+async function cargarEstadoActual(){
+  const tbody = document.getElementById('tablaEstadoActual');
   try{
     const data = await rpc('listar_ultima_carga', {});
+    if(!data || data.length===0){
+      tbody.innerHTML = '<tr><td colspan="3" class="small-note">Sin datos aún.</td></tr>';
+      return;
+    }
+    const orden = ['costos','lv1','lv2','mt1'];
     const map = {};
-    (data||[]).forEach(d => map[d.tipo] = d.fecha);
-    const ids = {costos:'fechaCostos', lv1:'fechaLV1', lv2:'fechaLV2', mt1:'fechaMT1'};
-    Object.entries(ids).forEach(([tipo, id])=>{
-      const el = document.getElementById(id);
-      el.textContent = map[tipo] ? 'Última subida: ' + new Date(map[tipo]).toLocaleString('es-CO') : 'Sin cargar aún';
-    });
-  }catch(e){}
+    data.forEach(d => map[d.tipo] = d);
+    tbody.innerHTML = orden.filter(t=>map[t]).map(t=>{
+      const d = map[t];
+      const fecha = d.fecha ? new Date(d.fecha).toLocaleString('es-CO') : '-';
+      const registros = d.registros!=null ? d.registros.toLocaleString('es-CO') : '-';
+      return `<tr><td>${FUENTE_LABEL[t]}</td><td>${fecha}</td><td>${registros}</td></tr>`;
+    }).join('');
+  }catch(e){
+    tbody.innerHTML = '<tr><td colspan="3" class="msg error">Error cargando estado.</td></tr>';
+  }
 }
 
 async function cargarFooterFecha(){
@@ -416,24 +422,6 @@ async function cargarFooterFecha(){
   }catch(e){}
 }
 cargarFooterFecha();
-
-async function cargarHistorial(){
-  const tbody = document.getElementById('tablaHistorial');
-  try{
-    const data = await rpc('listar_historial', {});
-    if(!data || data.length===0){
-      tbody.innerHTML = '<tr><td colspan="2" class="small-note">Sin datos aún.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = data.map(h=>{
-      const f = new Date(h.fecha);
-      const fechaStr = f.toLocaleString('es-CO');
-      return `<tr><td>${fechaStr}</td><td>${h.registros_actualizados}</td></tr>`;
-    }).join('');
-  }catch(e){
-    tbody.innerHTML = '<tr><td colspan="2" class="msg error">Error cargando historial.</td></tr>';
-  }
-}
 
 let productoActual = null;
 let costoVisible = false;
@@ -774,10 +762,9 @@ async function cargarDesdeCarpeta(tipo, nombreArchivo, rpcFn, buildItem){
     if(data.length===0){ msg.innerHTML = '<div class="msg error">No se encontraron filas válidas (revisa el filtro de familias).</div>'; return; }
     await rpc('crear_backup', {p_clave: claveAdmin});
     const total = await rpc(rpcFn, {p_clave: claveAdmin, p_data: data});
-    await rpc('registrar_carga', {p_clave: claveAdmin, p_total: total});
-    await rpc('actualizar_carga_tipo', {p_clave: claveAdmin, p_tipos: [tipo]});
+    await rpc('actualizar_carga_tipo', {p_clave: claveAdmin, p_tipo: tipo, p_registros: total});
     msg.innerHTML = `<div class="msg ok">${nombreArchivo}: ${total} registros reemplazados.</div>`;
-    cargarHistorial(); cargarFechasPorTipo(); cargarFooterFecha();
+    cargarEstadoActual(); cargarFooterFecha();
   }catch(e){
     msg.innerHTML = `<div class="msg error">Error: ${e.message}</div>`;
   }
@@ -815,80 +802,12 @@ async function revertirCarga(){
   try{
     const count = await rpc('revertir_ultima_carga', {p_clave: claveAdmin});
     msg.innerHTML = `<div class="msg ok">Reversión completa: ${count} registros restaurados.</div>`;
-    cargarHistorial();
+    cargarEstadoActual();
   }catch(e){
     msg.innerHTML = `<div class="msg error">No se pudo revertir (puede que no haya respaldo disponible).</div>`;
   }
 }
 
-async function procesarArchivos(){
-  if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
-  const msg = document.getElementById('adminMsg');
-  const progressWrap = document.getElementById('adminProgress');
-  const progressBar = document.getElementById('progressBar');
-  const progressLabel = document.getElementById('progressLabel');
-  msg.innerHTML = '';
-  const fCostos = document.getElementById('fileCostos').files[0];
-  const fLV1 = document.getElementById('fileLV1').files[0];
-  const fLV2 = document.getElementById('fileLV2').files[0];
-  const fMT1 = document.getElementById('fileMT1').files[0];
-  if(!fCostos && !fLV1 && !fLV2 && !fMT1){ msg.innerHTML = '<div class="msg error">Sube al menos un archivo.</div>'; return; }
-  try{
-    progressWrap.classList.remove('hidden');
-    progressLabel.textContent = 'Leyendo archivos...'; progressBar.value = 10;
-    const [costos, lv1, lv2, mt1] = await Promise.all([leerArchivo(fCostos), leerArchivo(fLV1), leerArchivo(fLV2), leerArchivo(fMT1)]);
-    progressLabel.textContent = 'Combinando por código BRK...'; progressBar.value = 35;
-    const mapa = {};
-    costos.forEach(r=>{
-      if(!familiaOk(r['FAMILIA'])) return;
-      const cod = limpiarCodigo(r['Referencia']); if(!cod) return;
-      mapa[cod] = mapa[cod] || {codigo_brk: cod};
-      mapa[cod].costo = r['Costo prom. uni.'] ?? null;
-      mapa[cod].familia = r['FAMILIA'] ?? mapa[cod].familia ?? null;
-      mapa[cod].notas = r['Notas ítem'] ?? null;
-      mapa[cod].marca = r['MARCA'] ?? null;
-    });
-    const asignarLista = (rows, campo)=>{
-      rows.forEach(r=>{
-        if(!familiaOk(r['FAMILIA'])) return;
-        const cod = limpiarCodigo(r['Referencia']); if(!cod) return;
-        mapa[cod] = mapa[cod] || {codigo_brk: cod};
-        mapa[cod][campo] = r['Precio'] ?? null;
-        mapa[cod].familia = mapa[cod].familia ?? (r['FAMILIA'] ?? null);
-      });
-    };
-    asignarLista(lv1, 'lv1'); asignarLista(lv2, 'lv2'); asignarLista(mt1, 'mt1');
-    const registros = Object.values(mapa).filter(r=>r.costo!=null || r.lv1!=null || r.lv2!=null || r.mt1!=null);
-    if(registros.length===0) throw new Error('No se encontraron registros válidos.');
-    progressLabel.textContent = `Subiendo ${registros.length} registros...`; progressBar.value = 55;
-    progressLabel.textContent = 'Creando respaldo de seguridad...';
-    await rpc('crear_backup', {p_clave: claveAdmin});
-    const lote = 200; let procesados = 0;
-    for(let i=0; i<registros.length; i+=lote){
-      const chunk = registros.slice(i, i+lote);
-      await rpc('upsert_productos', {p_clave: claveAdmin, p_data: chunk});
-      procesados += chunk.length;
-      progressBar.value = 55 + Math.round((procesados/registros.length)*40);
-      progressLabel.textContent = `Subidos ${procesados} de ${registros.length}...`;
-    }
-    progressBar.value = 100; progressLabel.textContent = 'Completado.';
-    await rpc('registrar_carga', {p_clave: claveAdmin, p_total: registros.length});
-    const tiposSubidos = [];
-    if(fCostos) tiposSubidos.push('costos');
-    if(fLV1) tiposSubidos.push('lv1');
-    if(fLV2) tiposSubidos.push('lv2');
-    if(fMT1) tiposSubidos.push('mt1');
-    if(tiposSubidos.length>0){
-      await rpc('actualizar_carga_tipo', {p_clave: claveAdmin, p_tipos: tiposSubidos});
-      cargarFechasPorTipo();
-      cargarFooterFecha();
-    }
-    msg.innerHTML = `<div class="msg ok">${registros.length} referencias actualizadas correctamente.</div>`;
-    cargarHistorial();
-  }catch(e){
-    msg.innerHTML = `<div class="msg error">Error: ${e.message}</div>`;
-  }
-}
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js').catch(()=>{});
