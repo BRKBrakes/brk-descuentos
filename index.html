@@ -129,7 +129,7 @@
     <nav>
       <button id="tabCalc" class="active" onclick="showTab('calc')">Calculadora</button>
       <button id="tabExport" onclick="exportar()">Exportar</button>
-      <button id="tabAdmin" onclick="abrirAdmin()">Admin</button>
+      <button id="tabAdmin" onclick="showTab('admin'); cargarEstadoActual();">DATA</button>
       <div class="user-badge">
         <span class="user-badge-dot"></span>
         <div class="user-badge-info">
@@ -351,22 +351,6 @@ function showTab(tab){
   document.getElementById('viewAdmin').classList.toggle('hidden', tab!=='admin');
   document.getElementById('tabCalc').classList.toggle('active', tab==='calc');
   document.getElementById('tabAdmin').classList.toggle('active', tab==='admin');
-}
-
-let claveAdmin = null;
-
-async function abrirAdmin(){
-  const clave = prompt('Ingresa la clave de administrador:');
-  if(!clave) return;
-  try{
-    const ok = await rpc('validar_clave', {p_clave: clave});
-    if(!ok){ alert('Clave incorrecta.'); return; }
-    claveAdmin = clave;
-    showTab('admin');
-    cargarEstadoActual();
-  }catch(e){
-    alert('Clave incorrecta o error de conexión.');
-  }
 }
 
 const FUENTE_LABEL = { costos:'Costos', lv1:'LV1', lv2:'LV2', mt1:'MT1' };
