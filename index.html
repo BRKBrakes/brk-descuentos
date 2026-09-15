@@ -184,6 +184,10 @@
         <label>Cantidad</label>
         <input id="cantidad" type="number" value="1" min="1" oninput="recalcular('cant')">
       </div>
+      <div>
+        <label>Existencia</label>
+        <div class="readonly-field" id="existenciaDisplay" style="padding:10px; border:1px solid var(--dust); border-radius:6px;">-</div>
+      </div>
     </div>
     <div class="row">
       <div>
@@ -233,20 +237,11 @@
     <button class="secondary" onclick="configurarCarpeta()">📁 Configurar carpeta</button>
   </div>
   <div class="card">
-    <h2>Cargar / actualizar base de precios y costos</h2>
-    <p class="small-note">Cada botón reemplaza SOLO su propia columna: lo que no venga en ese archivo queda vacío para esa columna.</p>
+    <h2>Cargar / actualizar Familia, Notas y Marca</h2>
+    <p class="small-note">Costo, LV1, LV2, MT1 y Existencia ya vienen en vivo desde <strong>catalogo_precios_brk</strong> (actualizado por SIESA). Este botón solo actualiza Familia/Notas/Marca desde Costos.xls.</p>
     <div class="row">
       <div>
         <button class="primary" style="width:100%;" onclick="cargarCostosDesdeCarpeta()">Cargar Costos.xls</button>
-      </div>
-      <div>
-        <button class="primary" style="width:100%;" onclick="cargarLV1DesdeCarpeta()">Cargar LV1.xls</button>
-      </div>
-      <div>
-        <button class="primary" style="width:100%;" onclick="cargarLV2DesdeCarpeta()">Cargar LV2.xls</button>
-      </div>
-      <div>
-        <button class="primary" style="width:100%;" onclick="cargarMT1DesdeCarpeta()">Cargar MT1.xls</button>
       </div>
     </div>
     <button class="secondary" onclick="revertirCarga()">Revertir última carga</button>
@@ -394,20 +389,27 @@ const FUENTE_LABEL = { costos:'Costos', lv1:'LV1', lv2:'LV2', mt1:'MT1' };
 async function cargarEstadoActual(){
   const tbody = document.getElementById('tablaEstadoActual');
   try{
-    const data = await rpc('listar_ultima_carga', {});
-    if(!data || data.length===0){
-      tbody.innerHTML = '<tr><td colspan="3" class="small-note">Sin datos aún.</td></tr>';
-      return;
+    const [data, catalogo] = await Promise.all([
+      rpc('listar_ultima_carga', {}),
+      rpc('estado_catalogo_precios', {})
+    ]);
+    const filas = [];
+    if(catalogo && catalogo[0]){
+      const c = catalogo[0];
+      const fecha = c.actualizado_en ? new Date(c.actualizado_en).toLocaleString('es-CO') : '-';
+      const total = c.total!=null ? c.total.toLocaleString('es-CO') : '-';
+      filas.push(`<tr><td>Costo / LV1 / LV2 / MT1 / Existencia (SIESA en vivo)</td><td>${fecha}</td><td>${total}</td></tr>`);
     }
-    const orden = ['costos','lv1','lv2','mt1'];
+    const orden = ['costos'];
     const map = {};
-    data.forEach(d => map[d.tipo] = d);
-    tbody.innerHTML = orden.filter(t=>map[t]).map(t=>{
+    (data||[]).forEach(d => map[d.tipo] = d);
+    orden.filter(t=>map[t]).forEach(t=>{
       const d = map[t];
       const fecha = d.fecha ? new Date(d.fecha).toLocaleString('es-CO') : '-';
       const registros = d.registros!=null ? d.registros.toLocaleString('es-CO') : '-';
-      return `<tr><td>${FUENTE_LABEL[t]}</td><td>${fecha}</td><td>${registros}</td></tr>`;
-    }).join('');
+      filas.push(`<tr><td>${FUENTE_LABEL[t]} (Familia/Notas/Marca)</td><td>${fecha}</td><td>${registros}</td></tr>`);
+    });
+    tbody.innerHTML = filas.length>0 ? filas.join('') : '<tr><td colspan="3" class="small-note">Sin datos aún.</td></tr>';
   }catch(e){
     tbody.innerHTML = '<tr><td colspan="3" class="msg error">Error cargando estado.</td></tr>';
   }
@@ -440,6 +442,7 @@ function limpiarBusqueda(){
   document.getElementById('cardComparativo').style.display = 'none';
   productoActual = null;
   costoVisible = false;
+  renderExistencia();
   document.getElementById('codigo').focus();
 }
 
@@ -462,6 +465,7 @@ async function buscarProducto(){
     msg.innerHTML = `<div class="msg ok">Encontrado: ${esc(productoActual.codigo_brk)} — ${esc(productoActual.familia)||''}</div>${notasHtml}`;
     document.getElementById('cardCalculo').style.display='block';
     document.getElementById('cardComparativo').style.display='block';
+    renderExistencia();
     renderCosto();
     document.getElementById('listaSel').value = 'lv1';
     cambiarLista();
@@ -474,6 +478,15 @@ function toggleCosto(){
   costoVisible = !costoVisible;
   renderCosto();
 }
+function renderExistencia(){
+  const disp = document.getElementById('existenciaDisplay');
+  if(!productoActual){ disp.textContent = '-'; disp.style.color = ''; return; }
+  const ex = productoActual.existencia;
+  if(ex == null){ disp.textContent = 'Sin dato'; disp.style.color = 'var(--silver)'; }
+  else if(ex <= 0){ disp.textContent = '0 — Sin stock'; disp.style.color = '#ff5c5c'; }
+  else { disp.textContent = ex.toLocaleString('es-CO') + ' unid.'; disp.style.color = '#4ade80'; }
+}
+
 function renderCosto(){
   const btn = document.getElementById('eyeBtn');
   const disp = document.getElementById('costoDisplay');
@@ -642,6 +655,7 @@ async function generarExcel(data){
     {header:'Marca', key:'marca', width:16},
     {header:'Familia', key:'familia', width:20},
     {header:'Costo', key:'costo', width:14},
+    {header:'Existencia', key:'existencia', width:12},
     {header:'LV2', key:'lv2', width:14},
     {header:'Margen LV2', key:'mlv2', width:14},
     {header:'LV1', key:'lv1', width:14},
@@ -658,10 +672,12 @@ async function generarExcel(data){
       marca: r.marca,
       familia: r.familia,
       costo: r.costo,
+      existencia: r.existencia,
       lv2: r.lv2, mlv2: mlv2!=null? Number((mlv2/100).toFixed(3)) : null,
       lv1: r.lv1, mlv1: mlv1!=null? Number((mlv1/100).toFixed(3)) : null,
       mt1: r.mt1, mmt1: mmt1!=null? Number((mmt1/100).toFixed(3)) : null,
     });
+    row.getCell('existencia').alignment = {horizontal:'center'};
     row.getCell('costo').numFmt = '$#,##0';
     row.getCell('costo').alignment = {horizontal:'center'};
     ['lv2','lv1','mt1'].forEach(key=>{
@@ -774,24 +790,6 @@ function cargarCostosDesdeCarpeta(){
   cargarDesdeCarpeta('costos', 'Costos.xls', 'reemplazar_costos', r=>{
     const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
     return { codigo_brk: cod, costo: r['Costo prom. uni.'] ?? null, notas: r['Notas ítem'] ?? null, marca: r['MARCA'] ?? null, familia: r['FAMILIA'] ?? null };
-  });
-}
-function cargarLV1DesdeCarpeta(){
-  cargarDesdeCarpeta('lv1', 'LV1.xls', 'reemplazar_lv1', r=>{
-    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
-    return { codigo_brk: cod, valor: r['Precio'] ?? null };
-  });
-}
-function cargarLV2DesdeCarpeta(){
-  cargarDesdeCarpeta('lv2', 'LV2.xls', 'reemplazar_lv2', r=>{
-    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
-    return { codigo_brk: cod, valor: r['Precio'] ?? null };
-  });
-}
-function cargarMT1DesdeCarpeta(){
-  cargarDesdeCarpeta('mt1', 'MT1.xls', 'reemplazar_mt1', r=>{
-    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
-    return { codigo_brk: cod, valor: r['Precio'] ?? null };
   });
 }
 
