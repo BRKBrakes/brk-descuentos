@@ -232,23 +232,8 @@
 
 <section id="viewAdmin" class="hidden">
   <div class="card">
-    <h2>Carpeta de archivos SIESA</h2>
-    <p class="small-note">Configura una sola vez la carpeta donde guardas Costos.xls, LV1.xls, LV2.xls y MT1.xls. Cada botón lee ese archivo exacto directo de la carpeta — no hace falta seleccionar archivo cada vez.</p>
-    <button class="secondary" onclick="configurarCarpeta()">📁 Configurar carpeta</button>
-  </div>
-  <div class="card">
-    <h2>Cargar / actualizar Familia, Notas y Marca</h2>
-    <p class="small-note">Costo, LV1, LV2, MT1 y Existencia ya vienen en vivo desde <strong>catalogo_precios_brk</strong> (actualizado por SIESA). Este botón solo actualiza Familia/Notas/Marca desde Costos.xls.</p>
-    <div class="row">
-      <div>
-        <button class="primary" style="width:100%;" onclick="cargarCostosDesdeCarpeta()">Cargar Costos.xls</button>
-      </div>
-    </div>
-    <button class="secondary" onclick="revertirCarga()">Revertir última carga</button>
-    <div id="adminProgress" class="hidden" style="margin-top:14px;">
-      <progress id="progressBar" value="0" max="100"></progress>
-      <div class="small-note" id="progressLabel"></div>
-    </div>
+    <h2>Fuente de datos</h2>
+    <p class="small-note">Costo, LV1, LV2, MT1, Existencia, Familia, Marca y Notas ahora vienen 100% en vivo desde <strong>catalogo_precios_brk</strong>, sincronizado directo desde SIESA (compartido con BRK Smart Catalog). Ya no es necesario subir Excel manualmente en esta app.</p>
     <div id="adminMsg"></div>
   </div>
   <div class="card">
@@ -701,110 +686,6 @@ async function generarExcel(data){
   URL.revokeObjectURL(url);
 }
 
-// ===== Admin: carga de excel =====
-function leerArchivo(file){
-  return new Promise((resolve, reject)=>{
-    if(!file){ resolve([]); return; }
-    const reader = new FileReader();
-    reader.onload = (e)=>{
-      try{
-        const wb = XLSX.read(e.target.result, {type:'binary'});
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        resolve(XLSX.utils.sheet_to_json(sheet, {defval:null}));
-      }catch(err){ reject(err); }
-    };
-    reader.onerror = reject;
-    reader.readAsBinaryString(file);
-  });
-}
-function limpiarCodigo(ref){ if(!ref) return null; return String(ref).replace(/^PC/i,'').trim().toUpperCase(); }
-
-// ===== Carpeta fija (File System Access API) =====
-function idbGet(key){
-  return new Promise((resolve, reject)=>{
-    const req = indexedDB.open('brk_fs_store', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('handles');
-    req.onsuccess = () => {
-      const tx = req.result.transaction('handles','readonly');
-      const g = tx.objectStore('handles').get(key);
-      g.onsuccess = () => resolve(g.result || null);
-      g.onerror = () => reject(g.error);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-function idbSet(key, value){
-  return new Promise((resolve, reject)=>{
-    const req = indexedDB.open('brk_fs_store', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('handles');
-    req.onsuccess = () => {
-      const tx = req.result.transaction('handles','readwrite');
-      tx.objectStore('handles').put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-async function configurarCarpeta(){
-  try{
-    const handle = await window.showDirectoryPicker();
-    await idbSet('carpeta_siesa', handle);
-    alert('Carpeta configurada correctamente. Ya puedes usar los botones de carga.');
-  }catch(e){
-    if(e.name !== 'AbortError') alert('No se pudo configurar la carpeta: ' + e.message);
-  }
-}
-async function leerArchivoHandle(fileHandle){
-  const file = await fileHandle.getFile();
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, {type:'array'});
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(sheet, {defval:null});
-}
-
-async function cargarDesdeCarpeta(tipo, nombreArchivo, rpcFn, buildItem){
-  const msg = document.getElementById('adminMsg');
-  msg.innerHTML = '';
-  if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
-  try{
-    const dirHandle = await idbGet('carpeta_siesa');
-    if(!dirHandle){ alert('Primero configura la carpeta (botón arriba).'); return; }
-    const perm = await dirHandle.requestPermission({mode:'read'});
-    if(perm !== 'granted'){ alert('Permiso denegado para leer la carpeta.'); return; }
-    const fileHandle = await dirHandle.getFileHandle(nombreArchivo);
-    const rows = await leerArchivoHandle(fileHandle);
-    const data = rows.filter(r=>familiaOk(r['FAMILIA'])).map(buildItem).filter(Boolean);
-    if(data.length===0){ msg.innerHTML = '<div class="msg error">No se encontraron filas válidas (revisa el filtro de familias).</div>'; return; }
-    await rpc('crear_backup', {p_clave: claveAdmin});
-    const total = await rpc(rpcFn, {p_clave: claveAdmin, p_data: data});
-    await rpc('actualizar_carga_tipo', {p_clave: claveAdmin, p_tipo: tipo, p_registros: total});
-    msg.innerHTML = `<div class="msg ok">${nombreArchivo}: ${total} registros reemplazados.</div>`;
-    cargarEstadoActual(); cargarFooterFecha();
-  }catch(e){
-    msg.innerHTML = `<div class="msg error">Error: ${e.message}</div>`;
-  }
-}
-
-function cargarCostosDesdeCarpeta(){
-  cargarDesdeCarpeta('costos', 'Costos.xls', 'reemplazar_costos', r=>{
-    const cod = limpiarCodigo(r['Referencia']); if(!cod) return null;
-    return { codigo_brk: cod, costo: r['Costo prom. uni.'] ?? null, notas: r['Notas ítem'] ?? null, marca: r['MARCA'] ?? null, familia: r['FAMILIA'] ?? null };
-  });
-}
-
-async function revertirCarga(){
-  if(!claveAdmin){ alert('Debes ingresar la clave de administrador primero.'); return; }
-  if(!confirm('¿Revertir a la base ANTES de la última carga? Esto no se puede deshacer otra vez.')) return;
-  const msg = document.getElementById('adminMsg');
-  try{
-    const count = await rpc('revertir_ultima_carga', {p_clave: claveAdmin});
-    msg.innerHTML = `<div class="msg ok">Reversión completa: ${count} registros restaurados.</div>`;
-    cargarEstadoActual();
-  }catch(e){
-    msg.innerHTML = `<div class="msg error">No se pudo revertir (puede que no haya respaldo disponible).</div>`;
-  }
-}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
